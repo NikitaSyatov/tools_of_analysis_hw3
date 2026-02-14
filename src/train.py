@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torchvision import models
 from torch.utils.data import Dataset, DataLoader
+from sklearn.utils.class_weight import compute_class_weight
 import numpy as np
 
 from loader import load_cifar
@@ -11,7 +12,7 @@ from cifar_dataset import CifarDataset, transform_train, transform_val
 
 def create_model(num_classes=3, model_name='resnet18'):
     if model_name == 'resnet18':
-        model = models.resnet18(pretrained=True)
+        model = models.resnet18(weights='IMAGENET1K_V1')
         num_features = model.fc.in_features
         model.fc = nn.Linear(num_features, num_classes)
     else:
@@ -29,7 +30,7 @@ def train_model(num_epochs=10, batch_size=32, model_name='resnet18'):
         batch_size=batch_size, 
         shuffle=True,
         num_workers=2,
-        pin_memory=True
+        pin_memory=False
     )
     
     val_loader = DataLoader(
@@ -37,15 +38,22 @@ def train_model(num_epochs=10, batch_size=32, model_name='resnet18'):
         batch_size=batch_size,
         shuffle=False,
         num_workers=2,
-        pin_memory=True
+        pin_memory=False
     )
     
     device = torch.device("cpu")
     model = create_model(num_classes=3, model_name=model_name).to(device)
+
+    class_weights = compute_class_weight(
+        class_weight='balanced',
+        classes=np.unique(train_dataset.labels),
+        y=train_dataset.labels
+    )
+    class_weights = torch.tensor(class_weights, dtype=torch.float32).to(device)
     
-    criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=1e-4)
-    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.1)
+    criterion = nn.CrossEntropyLoss(weight=class_weights)
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.1)
     
     print(f"Training on {device}")
     print(f"Train samples: {len(train_dataset)}, Test samples: {len(val_dataset)}")
